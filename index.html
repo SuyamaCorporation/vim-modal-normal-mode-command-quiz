@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vimノーマルモードコマンドクイズ</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4">
+<div class="max-w-2xl mx-auto">
+  <h1 class="text-2xl font-bold text-center text-green-400 mb-1">Vim ノーマルモード コマンドクイズ</h1>
+  <p class="text-center text-gray-400 text-sm mb-4">筋肉記憶を鍛える両方向クイズ</p>
+  <div class="bg-gray-800 rounded-xl p-3 mb-4 grid grid-cols-4 gap-3 text-center">
+    <div><div class="text-lg font-bold text-green-400" id="stat-correct">0</div><div class="text-xs text-gray-400">正解</div></div>
+    <div><div class="text-lg font-bold text-red-400" id="stat-wrong">0</div><div class="text-xs text-gray-400">不正解</div></div>
+    <div><div class="text-lg font-bold text-yellow-400" id="stat-streak">0</div><div class="text-xs text-gray-400">ストリーク</div></div>
+    <div><div class="text-lg font-bold text-blue-400" id="stat-rate">—</div><div class="text-xs text-gray-400">正解率</div></div>
+  </div>
+  <div class="bg-gray-800 rounded-xl p-3 mb-4">
+    <div class="text-xs text-gray-400 mb-2">カテゴリフィルタ（複数選択可）</div>
+    <div class="flex flex-wrap gap-2" id="cat-filter"></div>
+  </div>
+  <div class="flex gap-2 mb-4">
+    <button onclick="setMode('cmd2desc')" id="btn-cmd2desc" class="flex-1 py-2 rounded-lg text-sm font-semibold transition bg-green-700 text-white" aria-label="コマンド→説明モード">コマンド→説明</button>
+    <button onclick="setMode('desc2cmd')" id="btn-desc2cmd" class="flex-1 py-2 rounded-lg text-sm font-semibold transition bg-gray-700 text-white" aria-label="説明→コマンド入力モード">説明→コマンド</button>
+  </div>
+  <div class="bg-gray-800 rounded-xl p-5 mb-4" id="quiz-card">
+    <div class="text-xs text-gray-400 mb-2" id="q-category"></div>
+    <div class="text-lg font-bold text-white mb-4" id="q-question"></div>
+    <div id="choices-area" class="grid grid-cols-2 gap-2"></div>
+    <div id="input-area" class="hidden">
+      <div class="font-mono text-sm text-gray-400 mb-2">コマンドを入力 (例: dd, gg, :wq)</div>
+      <input type="text" id="cmd-input" placeholder="コマンド入力..."
+        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 font-mono text-white focus:outline-none focus:border-green-400"
+        aria-label="コマンド入力">
+      <button onclick="checkInput()" class="mt-2 w-full bg-green-600 hover:bg-green-500 rounded py-2 text-sm text-white font-semibold" aria-label="答え合わせ">答え合わせ</button>
+    </div>
+    <div id="feedback" class="hidden mt-4 p-3 rounded-lg">
+      <div id="feedback-text" class="font-semibold mb-1"></div>
+      <div id="feedback-detail" class="text-sm text-gray-300"></div>
+      <button onclick="nextQuestion()" class="mt-2 w-full bg-gray-600 hover:bg-gray-500 rounded py-2 text-sm text-white" aria-label="次の問題">次の問題 →</button>
+    </div>
+  </div>
+  <div class="bg-gray-800 rounded-xl p-4">
+    <h2 class="text-sm font-semibold text-orange-300 mb-2">⚠️ 苦手コマンド（正解率50%以下）</h2>
+    <div id="weak-list" class="text-xs text-gray-400">データなし</div>
+  </div>
+</div>
+<script>
+const COMMANDS = [
+  {cmd:'h',desc:'左に1文字移動',cat:'移動'},{cmd:'j',desc:'下に1行移動',cat:'移動'},
+  {cmd:'k',desc:'上に1行移動',cat:'移動'},{cmd:'l',desc:'右に1文字移動',cat:'移動'},
+  {cmd:'w',desc:'次の単語の先頭へ移動',cat:'移動'},{cmd:'b',desc:'前の単語の先頭へ移動',cat:'移動'},
+  {cmd:'e',desc:'次の単語の末尾へ移動',cat:'移動'},{cmd:'0',desc:'行の先頭へ移動',cat:'移動'},
+  {cmd:'$',desc:'行の末尾へ移動',cat:'移動'},{cmd:'gg',desc:'ファイルの先頭行へ移動',cat:'移動'},
+  {cmd:'G',desc:'ファイルの末尾行へ移動',cat:'移動'},{cmd:'%',desc:'対応するカッコへジャンプ',cat:'移動'},
+  {cmd:'x',desc:'カーソル位置の1文字を削除',cat:'削除'},{cmd:'dd',desc:'現在行を削除',cat:'削除'},
+  {cmd:'dw',desc:'次の単語を削除',cat:'削除'},{cmd:'d$',desc:'カーソルから行末まで削除',cat:'削除'},
+  {cmd:'D',desc:'カーソルから行末まで削除（D）',cat:'削除'},
+  {cmd:'yy',desc:'現在行をヤンク（コピー）',cat:'コピー'},{cmd:'yw',desc:'次の単語をヤンク',cat:'コピー'},
+  {cmd:'p',desc:'カーソルの後に貼り付け',cat:'コピー'},{cmd:'P',desc:'カーソルの前に貼り付け',cat:'コピー'},
+  {cmd:'r',desc:'1文字を置換（置換後ノーマルへ）',cat:'置換'},{cmd:'R',desc:'上書きモードに入る',cat:'置換'},
+  {cmd:'cw',desc:'次の単語を変更（挿入モードへ）',cat:'置換'},{cmd:'cc',desc:'現在行を変更（挿入モードへ）',cat:'置換'},
+  {cmd:'C',desc:'カーソルから行末まで変更',cat:'置換'},{cmd:'s',desc:'1文字削除して挿入モードへ',cat:'置換'},
+  {cmd:'/',desc:'前向き検索開始',cat:'検索'},{cmd:'?',desc:'後向き検索開始',cat:'検索'},
+  {cmd:'n',desc:'次の検索結果へ',cat:'検索'},{cmd:'N',desc:'前の検索結果へ',cat:'検索'},
+  {cmd:'*',desc:'カーソル下の単語を前向き検索',cat:'検索'},{cmd:'#',desc:'カーソル下の単語を後向き検索',cat:'検索'},
+  {cmd:':w',desc:'ファイルを保存',cat:'保存'},{cmd:':q',desc:'Vimを終了',cat:'保存'},
+  {cmd:':wq',desc:'保存して終了',cat:'保存'},{cmd:':q!',desc:'保存せずに強制終了',cat:'保存'},
+  {cmd:'u',desc:'アンドゥ（操作を取り消す）',cat:'保存'},{cmd:'Ctrl+r',desc:'リドゥ（取り消しを戻す）',cat:'保存'},
+  {cmd:':split',desc:'水平分割',cat:'ウィンドウ'},{cmd:':vsplit',desc:'垂直分割',cat:'ウィンドウ'},
+  {cmd:'gt',desc:'次のタブへ移動',cat:'ウィンドウ'},{cmd:'gT',desc:'前のタブへ移動',cat:'ウィンドウ'},
+  {cmd:':tabnew',desc:'新規タブを開く',cat:'ウィンドウ'},
+];
+const CATS=[...new Set(COMMANDS.map(c=>c.cat))];
+const CATCOL={移動:'blue',コピー:'green',削除:'red',置換:'orange',検索:'purple',保存:'teal',ウィンドウ:'yellow'};
+let quizMode='cmd2desc',enabledCats=new Set(CATS),stats=JSON.parse(localStorage.getItem('vimQuizStats')||'{}');
+let correctCount=0,wrongCount=0,streak=0,currentQ=null;
+function init(){
+  const cf=document.getElementById('cat-filter');
+  cf.innerHTML=CATS.map(cat=>`<button onclick="toggleCat('${cat}')" id="cat-${cat}" class="text-xs px-3 py-1 rounded-lg border border-gray-500 bg-gray-700 text-white transition" aria-label="${cat}フィルタ">${cat}</button>`).join('');
+  CATS.forEach(cat=>{const btn=document.getElementById('cat-'+cat);btn.className=`text-xs px-3 py-1 rounded-lg border transition bg-green-800 border-green-600 text-white`;});
+  updateWeakList();nextQuestion();
+}
+function toggleCat(cat){
+  if(enabledCats.has(cat)){if(enabledCats.size<=1)return;enabledCats.delete(cat);}
+  else enabledCats.add(cat);
+  CATS.forEach(c=>{const btn=document.getElementById('cat-'+c);btn.className=enabledCats.has(c)?'text-xs px-3 py-1 rounded-lg border transition bg-green-800 border-green-600 text-white':'text-xs px-3 py-1 rounded-lg border transition bg-gray-700 border-gray-600 text-gray-500';});
+  nextQuestion();
+}
+function setMode(m){
+  quizMode=m;
+  document.getElementById('btn-cmd2desc').className=`flex-1 py-2 rounded-lg text-sm font-semibold transition ${m==='cmd2desc'?'bg-green-700 text-white':'bg-gray-700 text-white'}`;
+  document.getElementById('btn-desc2cmd').className=`flex-1 py-2 rounded-lg text-sm font-semibold transition ${m==='desc2cmd'?'bg-green-700 text-white':'bg-gray-700 text-white'}`;
+  nextQuestion();
+}
+function getPool(){
+  const pool=COMMANDS.filter(c=>enabledCats.has(c.cat));
+  return pool.sort((a,b)=>{
+    const sa=stats[a.cmd]||{correct:0,wrong:0},sb=stats[b.cmd]||{correct:0,wrong:0};
+    const ra=sa.correct+sa.wrong>0?sa.correct/(sa.correct+sa.wrong):0.5;
+    const rb=sb.correct+sb.wrong>0?sb.correct/(sb.correct+sb.wrong):0.5;
+    return ra-rb;
+  });
+}
+function nextQuestion(){
+  document.getElementById('feedback').classList.add('hidden');
+  document.getElementById('choices-area').innerHTML='';
+  document.getElementById('input-area').classList.add('hidden');
+  const pool=getPool();if(!pool.length)return;
+  const pickPool=pool.slice(0,Math.max(1,Math.floor(pool.length*0.7)));
+  currentQ=pickPool[Math.floor(Math.random()*pickPool.length)];
+  document.getElementById('q-category').textContent=currentQ.cat;
+  if(quizMode==='cmd2desc'){
+    document.getElementById('q-question').innerHTML='<span class="font-mono text-2xl bg-gray-700 px-3 py-1 rounded">'+esc(currentQ.cmd)+'</span> の動作は？';
+    const wrong=COMMANDS.filter(c=>c.cmd!==currentQ.cmd).sort(()=>Math.random()-0.5).slice(0,3);
+    const choices=[...wrong.map(c=>c.desc),currentQ.desc].sort(()=>Math.random()-0.5);
+    document.getElementById('choices-area').innerHTML=choices.map(ch=>`<button onclick="checkChoice(${ch===currentQ.desc},'${esc(currentQ.desc)}')" class="bg-gray-700 hover:bg-gray-600 rounded-lg p-3 text-sm text-left text-gray-200 transition" aria-label="選択肢">${esc(ch)}</button>`).join('');
+  } else {
+    document.getElementById('q-question').textContent='「'+currentQ.desc+'」のコマンドは？';
+    document.getElementById('input-area').classList.remove('hidden');
+    const inp=document.getElementById('cmd-input');inp.value='';inp.focus();
+    inp.onkeydown=e=>{if(e.key==='Enter')checkInput();};
+  }
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function checkChoice(isCorrect,correctDesc){document.querySelectorAll('#choices-area button').forEach(b=>b.disabled=true);handleResult(isCorrect,correctDesc);}
+function checkInput(){const val=document.getElementById('cmd-input').value.trim();handleResult(val===currentQ.cmd||val.toLowerCase()===currentQ.cmd.toLowerCase(),currentQ.cmd);}
+function handleResult(isCorrect,correctAnswer){
+  if(!stats[currentQ.cmd])stats[currentQ.cmd]={correct:0,wrong:0};
+  if(isCorrect){stats[currentQ.cmd].correct++;correctCount++;streak++;}
+  else{stats[currentQ.cmd].wrong++;wrongCount++;streak=0;}
+  localStorage.setItem('vimQuizStats',JSON.stringify(stats));
+  document.getElementById('stat-correct').textContent=correctCount;
+  document.getElementById('stat-wrong').textContent=wrongCount;
+  document.getElementById('stat-streak').textContent=streak;
+  const total=correctCount+wrongCount;
+  document.getElementById('stat-rate').textContent=total>0?Math.round(correctCount/total*100)+'%':'—';
+  const fb=document.getElementById('feedback');fb.classList.remove('hidden');
+  fb.className='mt-4 p-3 rounded-lg '+(isCorrect?'bg-green-900/50 border border-green-700':'bg-red-900/50 border border-red-700');
+  document.getElementById('feedback-text').textContent=isCorrect?'✓ 正解！':'✗ 不正解';
+  document.getElementById('feedback-detail').textContent=isCorrect?'「'+currentQ.cmd+'」→「'+currentQ.desc+'」':'正解: '+correctAnswer;
+  updateWeakList();
+}
+function updateWeakList(){
+  const weak=Object.entries(stats).filter(([,s])=>s.correct+s.wrong>=2&&s.correct/(s.correct+s.wrong)<=0.5).sort((a,b)=>a[1].correct/(a[1].correct+a[1].wrong)-b[1].correct/(b[1].correct+b[1].wrong));
+  const list=document.getElementById('weak-list');
+  if(!weak.length){list.textContent='まだデータなし or 苦手なし';return;}
+  list.innerHTML=weak.slice(0,10).map(([cmd,s])=>{const rate=Math.round(s.correct/(s.correct+s.wrong)*100);const cd=COMMANDS.find(c=>c.cmd===cmd);return `<span class="inline-block bg-red-900/40 border border-red-700 rounded px-2 py-0.5 mr-1 mb-1 font-mono" title="${cd?cd.desc:''}">${esc(cmd)} (${rate}%)</span>`;}).join('');
+}
+init();
+</script>
+</body>
+</html>
